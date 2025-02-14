@@ -1,3 +1,7 @@
+import com.typesafe.sbt.SbtNativePackager.autoImport.packageName
+import com.typesafe.sbt.packager.docker.{Cmd, ExecCmd}
+import sbtassembly.AssemblyPlugin.autoImport.assembly
+
 ThisBuild / version := "0.1.0-SNAPSHOT"
 
 ThisBuild / scalaVersion := "3.3.5"
@@ -17,10 +21,27 @@ sqlcGenerate := {
   }
 }
 
-Compile / compile := ((Compile / compile) dependsOn sqlcGenerate).value
+// the bash scripts classpath only needs the fat jar
+
+def commands(jarPath: String) = Seq(
+  "mkdir classfiles",
+  "chmod -R u+x,g+x classfiles",
+  s"java -Xshare:off -XX:DumpLoadedClassList=classfiles/mn.lst -jar $jarPath warmup",
+  s"java -Xshare:dump -XX:SharedClassListFile=classfiles/mn.lst -XX:SharedArchiveFile=classfiles/mn13.jsa -jar $jarPath"
+//  s"java -XX:SharedArchiveFile=mn13.jsa -jar $jarPath" :: Nil
+).map(cmd => ExecCmd("RUN", cmd.split(" ").toSeq *))
+
+val assemblyJarPath = taskKey[String]("assemblyJarPath")
+
+assemblyJarPath := {
+  "lib/" + (assembly / assemblyJarName).value + ".jar"
+}
+
 lazy val root = (project in file("."))
+  .enablePlugins(NativeImagePlugin)
   .settings(
     name := "webapp-scala",
+    nativeImageCommand := s"/Users/ryota.suzuki/.sdkman/candidates/java/current/bin/native-image" :: Nil,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % "2.1.15",
       "dev.zio" %% "zio-http" % "3.0.1",
@@ -40,7 +61,73 @@ lazy val root = (project in file("."))
       "io.opentelemetry" % "opentelemetry-exporter-logging-otlp" % "1.47.0",
       "com.dimafeng" %% "testcontainers-scala-scalatest" % "0.41.8" % Test,
       "com.dimafeng" %% "testcontainers-scala-postgresql" % "0.41.8" % Test
-    )
-  )
+    ),
+    Compile / mainClass := Some("com.example.authors.AuthorServer"),
+    jibEnvironment := imageEnv,
+    jibUseCurrentTimestamp := true,
+    dockerEnvVars := imageEnv,
+    dockerExposedPorts := Seq(8080),
+    Docker / packageName := packageName.value + "-sbt-native-packager",
+    dockerCommands := dockerCommands.value.filterNot {
+      case ExecCmd("ENTRYPOINT" | "CMD", _*) =>
+        true
+      case cmd => false
+    } ++
+      Seq(Cmd("USER", "root")) ++
+      commands(
+        assemblyJarPath.value
+      ) ++
+      Seq(
+        Cmd("USER", "1001:0"),
+        ExecCmd(
+          "ENTRYPOINT",
+          "java"
+        ),
+        ExecCmd(
+          "CMD",
+          "-XX:SharedArchiveFile=classfiles/mn13.jsa",
+          "-jar",
+          assemblyJarPath.value
+        )
+      ),
+    dockerBaseImage := "ghcr.io/graalvm/jdk-community:23.0.2",
+    Compile / compile := ((Compile / compile) dependsOn sqlcGenerate).value,
+    assembly / assemblyJarName := packageName.value,
 
+    // removes all jar mappings in universal and appends the fat jar
+    Universal / mappings := {
+      // universalMappings: Seq[(File,String)]
+      val universalMappings = (Universal / mappings).value
+      val fatJar = (Compile / assembly).value
+      // removing means filtering
+      val filtered = universalMappings filter { case (file, name) =>
+        !name.endsWith(".jar")
+      }
+      // add the fat jar
+      filtered :+ (fatJar -> ("lib/" + fatJar.getName + ".jar"))
+    },
+    // the bash scripts classpath only needs the fat jar
+    scriptClasspath := Seq(
+      assemblyJarPath.value
+    ),
+    assembly / assemblyMergeStrategy := {
+      case PathList("javax", "servlet", xs @ _*) => MergeStrategy.first
+      case PathList(ps @ _*) if ps.last endsWith ".properties" =>
+        MergeStrategy.first
+      case PathList(ps @ _*) if ps.last endsWith ".xml"   => MergeStrategy.first
+      case PathList(ps @ _*) if ps.last endsWith ".types" => MergeStrategy.first
+      case PathList(ps @ _*) if ps.last endsWith ".class" => MergeStrategy.first
+      case "reference.conf" => MergeStrategy.concat
+      case x =>
+        val oldStrategy = (assembly / assemblyMergeStrategy).value
+        oldStrategy(x)
+    }
+  )
+  .enablePlugins(DockerPlugin)
+  .enablePlugins(JavaAppPackaging)
+
+val imageEnv = Map(
+  "JAVA_TOOL_OPTIONS" -> "-XX:+TieredCompilation -XX:TieredStopAtLevel=1 -Xss256k",
+  "OTEL_EXPORTER_OTLP_ENDPOINT" -> "http://localhost:4317"
+)
 enablePlugins(ZioSbtCiPlugin)

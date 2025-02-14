@@ -63,8 +63,13 @@ object AuthorServer extends ZIOAppDefault:
       logConfig
     ) >+> Slf4jBridge.init(logConfig.toFilter)
 
-  def run: ZIO[Any, Throwable, Nothing] =
+  def run: ZIO[ZIOAppArgs, Throwable, Unit] =
     val scope = Scope.make
+    val isWarmup = for {
+      isWarmup <- getArgs
+        .tap(args => ZIO.logInfo(s"args: ${args.mkString(" ")}"))
+        .map { args => args.headOption.contains("warmup") }
+    } yield isWarmup
     val server = for {
       routes <- appRoutes
       serve <- Server
@@ -79,8 +84,10 @@ object AuthorServer extends ZIOAppDefault:
             })
         )
     } yield serve
-    server
-      .provide(
+
+    ZIO.ifZIO(isWarmup)(
+      ZIO.logInfo("warmup").as(ZIO.unit),
+      server.provide(
         ZLayer.fromZIO(scope),
         OtelSdk.custom("AuthorServer"),
         DBConfig.fromContainerLive,
@@ -90,6 +97,6 @@ object AuthorServer extends ZIOAppDefault:
         AuthorEndpoint.live,
         Server.default
       )
-      .ensuring(scope.map(_.close(Exit.succeed(()))))
+    )
 
 end AuthorServer

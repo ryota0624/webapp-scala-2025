@@ -13,6 +13,7 @@ import zio.{Scope, ZIO, ZLayer}
 import java.util.UUID
 import scala.language.postfixOps
 
+//  --initialize-at-build-time=zio.logging.slf4j.bridge.ZioLogger --trace-object-instantiation=zio.logging.slf4j.bridge.ZioLoggerFactory --initialize-at-build-time=zio.logging.slf4j.bridge.LoggerData --initialize-at-build-time=zio.logging.slf4j.bridge.ZioLoggerFactory --initialize-at-run-time=io.netty.channel.ChannelInitializer
 object AuthorRoute:
   type Env = Queries & Tracing
   val live =
