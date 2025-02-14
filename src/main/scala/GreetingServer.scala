@@ -24,9 +24,11 @@ object GreetingServer extends ZIOAppDefault:
 
   private val routes =
     val rootRoute =
-      ServerEndpoint.root.implement { id =>
-        ZIO.succeed("Greetings at your service")
-      }
+      ServerEndpoint.root.implement { _ =>
+        throw new RuntimeException("Not implemented")
+      } handleErrorCauseZIO    (cause =>
+        ZIO.logError(cause.prettyPrint).as(Response.error(Status.InternalServerError))
+      )
 
     val greetingRoute =
       ServerEndpoint.greeting.implement { name =>

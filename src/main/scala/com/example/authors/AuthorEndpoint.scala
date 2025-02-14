@@ -1,15 +1,16 @@
 package com.example.authors
 
-import zio.ZNothing
-import zio.http.{Method, string}
+import zio.{ZLayer, ZNothing}
+import zio.http.{Method, Status, string}
 import zio.http.endpoint.AuthType.None
 import zio.http.endpoint.Endpoint
 import zio.schema.{DeriveSchema, Schema}
 
 trait AuthorEndpoint:
-  val authors: Endpoint[Unit, Unit, ZNothing, List[Author], None] =
+  val authors: Endpoint[Unit, Unit, String, List[Author], None] =
     Endpoint(Method.GET / "authors")
       .out[List[Author]]
+      .outError[String](Status.InternalServerError)
 
   val registerAuthor
       : Endpoint[Unit, AuthorRegistration, ZNothing, Author, None] =
@@ -30,7 +31,9 @@ trait AuthorEndpoint:
   def publicEndpoints: Seq[Endpoint[_, _, _, _, None]] =
     authors :: registerAuthor :: getAuthor :: updateAuthor :: Nil
 
-object AuthorEndpoint extends AuthorEndpoint
+object AuthorEndpoint extends AuthorEndpoint:
+  val live: ZLayer[Any, Nothing, AuthorEndpoint] =
+    ZLayer.succeed(AuthorEndpoint)
 
 case class AuthorRegistration(
     name: String,

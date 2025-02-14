@@ -1,33 +1,76 @@
 package com.example.authors
 
-import zio.ZIO
-import zio.http.{Route, Routes}
+import com.example.authors.http.*
+import com.example.authors.postgresql.Queries
+import io.opentelemetry.api.OpenTelemetry
+import zio.http.*
+import zio.telemetry.opentelemetry
+import zio.telemetry.opentelemetry.baggage.Baggage
+import zio.telemetry.opentelemetry.context.ContextStorage
+import zio.telemetry.opentelemetry.tracing.Tracing
+import zio.{Scope, ZIO, ZLayer}
 
 import java.util.UUID
+import scala.language.postfixOps
+
+object AuthorRoute:
+  type Env = Queries & Tracing
+  val live =
+    ZLayer {
+      for {
+        e <- ZIO.service[AuthorEndpoint]
+      } yield AuthorRoute(e)
+    }
 
 class AuthorRoute(endpoint: AuthorEndpoint):
-  def listAuthors: Route[Any, Nothing] = endpoint.authors.implement { _ =>
-    ZIO.succeed(List(Author(UUID.randomUUID().toString, "John Doe", None)))
+  val listAuthors: Route[Queries & Tracing, Any] =
+    endpoint.authors.impl({ _ =>
+      for {
+        _ <- ZIO.serviceWithZIO[Tracing](_.addEvent("Listing authors Events"))
+        _ <- ZIO.logInfo("Listing authors")
+        authors <- ZIO
+          .serviceWithZIO[Queries](service =>
+            ZIO.attempt(service.listAuthors())
+          ).mapBoth(_.getMessage, _.map(a => Author(a.id.toString, a.name, a.bio)))
+      } yield authors
+    })
+
+  val getAuthor: Route[Tracing, Any] = endpoint.getAuthor.impl { authorId =>
+    for {
+      _ <- ZIO.serviceWithZIO[Tracing](_.addEvent("Get author Events"))
+      _ <- ZIO.logInfo("get authors")
+      resp <- ZIO.succeed(Author(authorId, "John Doe", scala.None))
+    } yield resp
   }
 
-  def getAuthor: Route[Any, Nothing] = endpoint.getAuthor.implement {
-    authorId =>
-      ZIO.succeed(Author(authorId, "John Doe", None))
-  }
-
-  def updateAuthor: Route[Any, Nothing] = endpoint.updateAuthor.implement {
+  val updateAuthor: Route[Any, Any] = endpoint.updateAuthor.impl {
     (authorId, update) =>
-      ZIO.succeed(
+      for {
+        _ <- ZIO.log(s"Updating author $authorId")
+      } yield {
         Author(authorId, update.name.getOrElse("John Doe"), update.bio)
-      )
+      }
   }
 
-  def registerAuthor: Route[Any, Nothing] =
-    endpoint.registerAuthor.implement { registration =>
-      ZIO.succeed(
-        Author(UUID.randomUUID().toString, registration.name, registration.bio)
+  val registerAuthor: Route[Any, Any] =
+    endpoint.registerAuthor.impl { registration =>
+      for {
+        _ <- ZIO.log(s"Registering author ${registration.name}")
+      } yield Author(
+        UUID.randomUUID().toString,
+        registration.name,
+        registration.bio
       )
     }
 
-  def publicRoutes: Routes[Any, Nothing] =
-    Routes(listAuthors, getAuthor, updateAuthor, registerAuthor)
+  val publicRoutes: Routes[
+    Tracing & OpenTelemetry & ContextStorage & Scope & Tracing & Baggage &
+      Queries & Tracing,
+    Any
+  ] =
+    Routes(
+      listAuthors,
+      getAuthor,
+      updateAuthor,
+      registerAuthor
+    ) @@ assignTraceId @@ tracingMiddleware @@ loggingMiddleware
