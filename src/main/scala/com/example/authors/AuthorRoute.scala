@@ -9,6 +9,7 @@ import zio.telemetry.opentelemetry.baggage.Baggage
 import zio.telemetry.opentelemetry.context.ContextStorage
 import zio.telemetry.opentelemetry.tracing.Tracing
 import zio.{Scope, ZIO, ZLayer}
+import zio.http.*
 
 import java.util.UUID
 import scala.language.postfixOps

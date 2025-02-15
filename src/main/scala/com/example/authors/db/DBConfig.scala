@@ -24,3 +24,11 @@ object DBConfig:
         container.password
       )
     }
+
+  val fakeContainerLive = ZLayer.succeed(
+    DBConfig(
+      "jdbc:postgresql://localhost:5432/authors",
+      "authors",
+      "password"
+    )
+  )

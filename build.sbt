@@ -41,30 +41,42 @@ lazy val root = (project in file("."))
   .enablePlugins(NativeImagePlugin)
   .settings(
     name := "webapp-scala",
-    nativeImageCommand := s"/Users/ryota.suzuki/.sdkman/candidates/java/current/bin/native-image" :: Nil,
+    nativeImageGraalHome := file(
+      "/Users/ryota.suzuki/.sdkman/candidates/java/21.0.6-graal"
+    ).toPath,
+    nativeImageCommand := s"/Users/ryota.suzuki/.sdkman/candidates/java/21.0.6-graal/bin/native-image" :: Nil,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % "2.1.15",
-      "dev.zio" %% "zio-http" % "3.0.1",
       "org.postgresql" % "postgresql" % "42.7.5",
       "org.testcontainers" % "postgresql" % "1.20.4",
       "com.dimafeng" %% "testcontainers-scala" % "0.41.8",
+      "dev.zio" %% "zio-http" % "3.0.1",
       "dev.zio" %% "zio-schema" % "1.6.1",
       "dev.zio" %% "zio-schema-json" % "1.6.1",
       "dev.zio" %% "zio-schema-derivation" % "1.6.1",
       "dev.zio" %% "zio-logging" % "2.4.0",
-      "dev.zio" %% "zio-logging-slf4j2-bridge" % "2.4.0",
+//      "dev.zio" %% "zio-logging-slf4j2-bridge" % "2.4.0",
       "dev.zio" %% "zio-opentelemetry" % "3.1.1",
       "dev.zio" %% "zio-opentelemetry-zio-logging" % "3.1.1",
       "io.opentelemetry" % "opentelemetry-api" % "1.47.0",
       "io.opentelemetry" % "opentelemetry-sdk" % "1.47.0",
       "io.opentelemetry" % "opentelemetry-semconv" % "1.30.1-alpha",
-      "io.opentelemetry" % "opentelemetry-exporter-logging-otlp" % "1.47.0",
-      "com.dimafeng" %% "testcontainers-scala-scalatest" % "0.41.8" % Test,
-      "com.dimafeng" %% "testcontainers-scala-postgresql" % "0.41.8" % Test
+      "io.opentelemetry" % "opentelemetry-exporter-logging-otlp" % "1.47.0"
     ),
     Compile / mainClass := Some("com.example.authors.AuthorServer"),
+    jibBaseImage := "ghcr.io/graalvm/graalvm-community:23.0.2",
     jibEnvironment := imageEnv,
     jibUseCurrentTimestamp := true,
+    nativeImageOptions := Seq(
+      "-Djdk.http.auth.tunneling.disabledSchemes=",
+      "--install-exit-handlers",
+      "--verbose",
+      "--diagnostics-mode",
+      "-O0",
+      "--no-fallback",
+      "--enable-http",
+      "--enable-url-protocols=http,https"
+    ),
     dockerEnvVars := imageEnv,
     dockerExposedPorts := Seq(8080),
     Docker / packageName := packageName.value + "-sbt-native-packager",
@@ -73,7 +85,10 @@ lazy val root = (project in file("."))
         true
       case cmd => false
     } ++
-      Seq(Cmd("USER", "root")) ++
+      Seq(
+//        Cmd("ENV", "PATH=/opt/docker/jre/bin:${PATH}"),
+        Cmd("USER", "root")
+      ) ++
       commands(
         assemblyJarPath.value
       ) ++
@@ -81,7 +96,7 @@ lazy val root = (project in file("."))
         Cmd("USER", "1001:0"),
         ExecCmd(
           "ENTRYPOINT",
-          "java"
+          jlinkBundledJvmLocation.value + "/bin/java"
         ),
         ExecCmd(
           "CMD",
@@ -90,9 +105,10 @@ lazy val root = (project in file("."))
           assemblyJarPath.value
         )
       ),
-    dockerBaseImage := "ghcr.io/graalvm/jdk-community:23.0.2",
+    dockerBaseImage := "ghcr.io/graalvm/graalvm-community:23.0.2",
     Compile / compile := ((Compile / compile) dependsOn sqlcGenerate).value,
     assembly / assemblyJarName := packageName.value,
+//    jlinkBuildImage := "ghcr.io/graalvm/graalvm-ce:21.0.0-java11",
 
     // removes all jar mappings in universal and appends the fat jar
     Universal / mappings := {
@@ -125,6 +141,7 @@ lazy val root = (project in file("."))
   )
   .enablePlugins(DockerPlugin)
   .enablePlugins(JavaAppPackaging)
+  .enablePlugins(JlinkPlugin)
 
 val imageEnv = Map(
   "JAVA_TOOL_OPTIONS" -> "-XX:+TieredCompilation -XX:TieredStopAtLevel=1 -Xss256k",

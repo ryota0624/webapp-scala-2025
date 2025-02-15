@@ -13,31 +13,12 @@ class MyPrepareStatement(
   export stmt.{executeQuery as _, *}
 
   override def executeQuery(): ResultSet = {
-    logger
-      .atInfo()
-      .addKeyValue("statementExecuteId", id.toString)
-      .setMessage("Query execute")
-      .log()
     val rs = stmt.executeQuery()
-    logger
-      .atInfo()
-      .addKeyValue("statementExecuteId", id.toString)
-      .setMessage("Query executed")
-      .log()
     rs
   }
   override def executeQuery(sql: String): ResultSet = {
-    logger
-      .atInfo()
-      .addKeyValue("statementExecuteId", id.toString)
-      .setMessage("Query execute")
-      .log()
+
     val rs = stmt.executeQuery(sql)
-    logger
-      .atInfo()
-      .addKeyValue("statementExecuteId", id.toString)
-      .setMessage("Query executed")
-      .log()
     rs
   }
 

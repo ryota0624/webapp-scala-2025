@@ -2,28 +2,22 @@ package com.example.authors
 
 import com.example.authors.db.{DBConfig, MyConnection}
 import com.example.authors.postgresql.{Queries, QueriesImpl}
-import io.opentelemetry.api.OpenTelemetry
-import zio.http.*
-import zio.http.codec.*
-import zio.http.codec.PathCodec.path
-import zio.http.endpoint.*
+import zio.http.{Response, Server, Status}
 import zio.http.endpoint.openapi.{OpenAPIGen, SwaggerUI}
-import zio.logging.slf4j.bridge.Slf4jBridge
 import zio.logging.{
   ConsoleLoggerConfig,
   LogFilter,
   LogFormat,
   consoleJsonLogger
 }
-import zio.telemetry.opentelemetry.baggage.Baggage
-import zio.telemetry.opentelemetry.context.ContextStorage
-import zio.telemetry.opentelemetry.tracing.Tracing
 import zio.{URIO, *}
+import zio.http.codec.*
 
 import java.sql.DriverManager
 
 def queryLayer: ZLayer[DBConfig, Throwable, QueriesImpl] =
   ZLayer.fromZIO {
+    DriverManager.registerDriver(new org.postgresql.Driver)
     for {
       config <- ZIO.service[DBConfig]
       connection <- ZIO.attempt(
@@ -43,7 +37,7 @@ val appRoutes = {
       version = "1.0",
       AuthorEndpoint.publicEndpoints
     )
-
+  import zio.http.codec.PathCodec.path
   for {
     authorRoute <- ZIO.service[AuthorRoute]
   } yield authorRoute.publicRoutes ++ SwaggerUI.routes(
@@ -53,15 +47,14 @@ val appRoutes = {
 }
 
 object AuthorServer extends ZIOAppDefault:
-
   private val logConfig = ConsoleLoggerConfig.default.copy(
     format = LogFormat.colored + LogFormat.allAnnotations,
     filter = LogFilter.LogLevelByNameConfig(LogLevel.Info)
   )
-  override val bootstrap: ZLayer[ZIOAppArgs, Nothing, Unit] =
-    Runtime.removeDefaultLoggers >>> consoleJsonLogger(
-      logConfig
-    ) >+> Slf4jBridge.init(logConfig.toFilter)
+//  override val bootstrap: ZLayer[ZIOAppArgs, Nothing, Unit] =
+//    Runtime.removeDefaultLoggers >>> consoleJsonLogger(
+//      logConfig
+//    ) // >+> Slf4jBridge.init(logConfig.toFilter)
 
   def run: ZIO[ZIOAppArgs, Throwable, Unit] =
     val scope = Scope.make
@@ -96,6 +89,8 @@ object AuthorServer extends ZIOAppDefault:
         AuthorRoute.live,
         AuthorEndpoint.live,
         Server.default
+      ).catchAllCause(cause =>
+        ZIO.logError(s"Error while running server: ${cause.prettyPrint}")
       )
     )
 
