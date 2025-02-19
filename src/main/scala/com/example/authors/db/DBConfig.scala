@@ -25,10 +25,22 @@ object DBConfig:
       )
     }
 
-  val fakeContainerLive = ZLayer.succeed(
-    DBConfig(
-      "jdbc:postgresql://localhost:5432/authors",
-      "authors",
-      "password"
+  val fakeContainerLive =
+    ZLayer.fromFunction((_: Any) =>
+      println("Using fake container")
+      DBConfig(
+        "jdbc:postgresql://localhost:5432/authors",
+        "authors",
+        "password"
+      )
     )
-  )
+
+  val fromEnvLive =
+    ZLayer.fromFunction((_: Any) =>
+      println("Using fake container")
+      DBConfig(
+        s"jdbc:${System.getenv("DATABASE_URL")}",
+        System.getenv("DATABASE_USER"),
+        System.getenv("DATABASE_PASSWORD")
+      )
+    )

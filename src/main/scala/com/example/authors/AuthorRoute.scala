@@ -54,9 +54,10 @@ class AuthorRoute(endpoint: AuthorEndpoint):
       }
   }
 
-  val registerAuthor: Route[Any, Any] =
+  val registerAuthor =
     endpoint.registerAuthor.impl { registration =>
       for {
+        _ <- ZIO.serviceWith[Queries](_.createAuthor(UUID.randomUUID(), registration.name, registration.bio))
         _ <- ZIO.log(s"Registering author ${registration.name}")
       } yield Author(
         UUID.randomUUID().toString,

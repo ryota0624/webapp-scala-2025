@@ -18,6 +18,5 @@
       </SbtProjectSettings>
     </option>
     <option name="maximumHeapSize" value="8000" />
-    <option name="vmParameters" value="-XX:+UseZGC" />
   </component>
 </project>

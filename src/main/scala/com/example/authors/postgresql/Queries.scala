@@ -11,7 +11,10 @@ import java.util.UUID
 import scala.util.Using
 
 trait Queries {
-  def createAuthor(name: String, bio: Option[String]): Option[Author]
+  def createAuthor(
+      id: UUID,
+      name: String,
+      bio: Option[String]): Option[Author]
   
   def deleteAuthor(id: UUID): Unit
   

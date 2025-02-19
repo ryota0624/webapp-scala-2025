@@ -12,6 +12,7 @@ import zio.logging.{
 }
 import zio.{URIO, *}
 import zio.http.codec.*
+//import zio.logging.slf4j.bridge.{Slf4jBridge, ZioSLF4JServiceProvider}
 
 import java.sql.DriverManager
 
@@ -47,14 +48,15 @@ val appRoutes = {
 }
 
 object AuthorServer extends ZIOAppDefault:
+  java.sql.DriverManager.registerDriver(new org.postgresql.Driver)
   private val logConfig = ConsoleLoggerConfig.default.copy(
     format = LogFormat.colored + LogFormat.allAnnotations,
-    filter = LogFilter.LogLevelByNameConfig(LogLevel.Info)
+    filter = LogFilter.LogLevelByNameConfig(LogLevel.Debug)
   )
-//  override val bootstrap: ZLayer[ZIOAppArgs, Nothing, Unit] =
-//    Runtime.removeDefaultLoggers >>> consoleJsonLogger(
-//      logConfig
-//    ) // >+> Slf4jBridge.init(logConfig.toFilter)
+  override val bootstrap: ZLayer[ZIOAppArgs, Nothing, Unit] =
+    Runtime.removeDefaultLoggers >>> consoleJsonLogger(
+      logConfig
+    ) // >+> Slf4jBridge.init(logConfig.toFilter)
 
   def run: ZIO[ZIOAppArgs, Throwable, Unit] =
     val scope = Scope.make
@@ -80,18 +82,20 @@ object AuthorServer extends ZIOAppDefault:
 
     ZIO.ifZIO(isWarmup)(
       ZIO.logInfo("warmup").as(ZIO.unit),
-      server.provide(
-        ZLayer.fromZIO(scope),
-        OtelSdk.custom("AuthorServer"),
-        DBConfig.fromContainerLive,
-        queryLayer,
-        telemetryLayer,
-        AuthorRoute.live,
-        AuthorEndpoint.live,
-        Server.default
-      ).catchAllCause(cause =>
-        ZIO.logError(s"Error while running server: ${cause.prettyPrint}")
-      )
+      server
+        .provide(
+          ZLayer.fromZIO(scope),
+          OtelSdk.custom("AuthorServer"),
+          DBConfig.fromContainerLive,
+          queryLayer,
+          telemetryLayer,
+          AuthorRoute.live,
+          AuthorEndpoint.live,
+          Server.default
+        )
+        .catchAllCause(cause =>
+          ZIO.logError(s"Error while running server: ${cause.prettyPrint}")
+        )
     )
 
 end AuthorServer

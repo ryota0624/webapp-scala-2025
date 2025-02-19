@@ -2,7 +2,10 @@ package com.example.authors
 
 import io.opentelemetry.api.OpenTelemetry
 import io.opentelemetry.api.common.Attributes
-import io.opentelemetry.exporter.logging.otlp.{OtlpJsonLoggingLogRecordExporter, OtlpJsonLoggingSpanExporter}
+import io.opentelemetry.exporter.logging.otlp.{
+  OtlpJsonLoggingLogRecordExporter,
+  OtlpJsonLoggingSpanExporter
+}
 import io.opentelemetry.sdk.logs.SdkLoggerProvider
 import io.opentelemetry.sdk.logs.`export`.SimpleLogRecordProcessor
 import io.opentelemetry.sdk.resources.Resource
@@ -14,6 +17,10 @@ import zio.*
 import zio.telemetry.opentelemetry.baggage.Baggage
 import zio.telemetry.opentelemetry.context.ContextStorage
 import zio.telemetry.opentelemetry.tracing.Tracing
+
+import java.io.File
+
+
 
 def telemetryLayer: ZLayer[
   Any & OpenTelemetry,

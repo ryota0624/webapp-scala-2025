@@ -31,9 +31,9 @@
   }, {
     "pattern":"\\Qorg/postgresql/driverconfig.properties\\E"
   }, {
-    "pattern":"\\Qorg/slf4j/impl/StaticLoggerBinder.class\\E"
-  }, {
     "pattern":"\\Qpostgresql/schema.sql\\E"
+  }, {
+    "pattern":"\\Qsimplelogger.properties\\E"
   }, {
     "pattern":"\\Qtestcontainers.properties\\E"
   }]},

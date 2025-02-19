@@ -1,10 +1,14 @@
 import com.typesafe.sbt.SbtNativePackager.autoImport.packageName
 import com.typesafe.sbt.packager.docker.{Cmd, ExecCmd}
 import sbtassembly.AssemblyPlugin.autoImport.assembly
+import de.gccc.jib.JibPlugin
 
-ThisBuild / version := "0.1.0-SNAPSHOT"
+// docker run -v $PWD:/work -v $HOME/.ivy2:/root/.ivy2  -v /var/run/docker.sock:/var/run/docker.sock  -it webapp-scala-sbt:3 bash
+
+ThisBuild / version := "0.1.1-SNAPSHOT"
 
 ThisBuild / scalaVersion := "3.3.5"
+resolvers += "jitpack" at "https://jitpack.io"
 
 lazy val sqlcGenerate = taskKey[Unit]("run sqlc generate")
 sqlcGenerate := {
@@ -37,14 +41,35 @@ assemblyJarPath := {
   "lib/" + (assembly / assemblyJarName).value + ".jar"
 }
 
+def directoryMap(f: File): Seq[(File, String)] = {
+  def fileListInDir(parentPath: String, dir: File): Seq[(File, String)] = {
+    dir
+      .listFiles()
+      .foldLeft[Seq[(File, String)]](Nil)((files, f) => {
+        if (f.isDirectory) {
+          files ++ fileListInDir(parentPath + "/" + f.getName, f)
+        } else {
+          files ++ (f -> (parentPath + "/" + f.getName) :: Nil)
+        }
+      })
+  }
+
+  if (f.isDirectory) {
+    fileListInDir(f.getName, f)
+  } else {
+    Seq(f -> f.getName)
+  }
+}
+
 lazy val root = (project in file("."))
   .enablePlugins(NativeImagePlugin)
+  .enablePlugins(JibPlugin)
   .settings(
     name := "webapp-scala",
     nativeImageGraalHome := file(
-      "/Users/ryota.suzuki/.sdkman/candidates/java/21.0.6-graal"
+      s"${System.getenv("HOME")}/.sdkman/candidates/java/21.0.6-graal"
     ).toPath,
-    nativeImageCommand := s"/Users/ryota.suzuki/.sdkman/candidates/java/21.0.6-graal/bin/native-image" :: Nil,
+    nativeImageCommand := s"${System.getenv("HOME")}/.sdkman/candidates/java/21.0.6-graal/bin/native-image" :: Nil,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % "2.1.15",
       "org.postgresql" % "postgresql" % "42.7.5",
@@ -61,54 +86,77 @@ lazy val root = (project in file("."))
       "io.opentelemetry" % "opentelemetry-api" % "1.47.0",
       "io.opentelemetry" % "opentelemetry-sdk" % "1.47.0",
       "io.opentelemetry" % "opentelemetry-semconv" % "1.30.1-alpha",
-      "io.opentelemetry" % "opentelemetry-exporter-logging-otlp" % "1.47.0"
+      "io.opentelemetry" % "opentelemetry-exporter-logging-otlp" % "1.47.0",
+      "org.slf4j" % "slf4j-api" % "2.0.16",
+      "org.slf4j" % "slf4j-simple" % "2.0.16"
     ),
     Compile / mainClass := Some("com.example.authors.AuthorServer"),
-    jibBaseImage := "ghcr.io/graalvm/graalvm-community:23.0.2",
-    jibEnvironment := imageEnv,
-    jibUseCurrentTimestamp := true,
     nativeImageOptions := Seq(
       "-Djdk.http.auth.tunneling.disabledSchemes=",
       "--install-exit-handlers",
       "--verbose",
       "--diagnostics-mode",
       "-O0",
-      "--no-fallback",
+//      "--no-fallback",
       "--enable-http",
       "--enable-url-protocols=http,https"
+//      "--force-fallback"
     ),
     dockerEnvVars := imageEnv,
     dockerExposedPorts := Seq(8080),
-    Docker / packageName := packageName.value + "-sbt-native-packager",
-    dockerCommands := dockerCommands.value.filterNot {
+    Docker / packageName := packageName.value + "-runtime",
+    dockerCommands := (dockerCommands.value.filterNot {
       case ExecCmd("ENTRYPOINT" | "CMD", _*) =>
         true
+      case Cmd("RUN", "id", _*) =>
+        true
       case cmd => false
-    } ++
-      Seq(
-//        Cmd("ENV", "PATH=/opt/docker/jre/bin:${PATH}"),
-        Cmd("USER", "root")
-      ) ++
-      commands(
-        assemblyJarPath.value
-      ) ++
-      Seq(
-        Cmd("USER", "1001:0"),
-        ExecCmd(
-          "ENTRYPOINT",
-          jlinkBundledJvmLocation.value + "/bin/java"
-        ),
-        ExecCmd(
-          "CMD",
-          "-XX:SharedArchiveFile=classfiles/mn13.jsa",
-          "-jar",
-          assemblyJarPath.value
-        )
-      ),
+    } map {
+      case Cmd("FROM", _, "AS", "mainstage") =>
+        Cmd("FROM", "gcr.io/distroless/base")
+      case cmd => cmd
+    }) ++ Seq(
+      Cmd("ENV", "PATH=/opt/docker/jre/bin:${PATH}")
+    ),
     dockerBaseImage := "ghcr.io/graalvm/graalvm-community:23.0.2",
     Compile / compile := ((Compile / compile) dependsOn sqlcGenerate).value,
     assembly / assemblyJarName := packageName.value,
-//    jlinkBuildImage := "ghcr.io/graalvm/graalvm-ce:21.0.0-java11",
+    jlinkIgnoreMissingDependency := JlinkIgnore.everything,
+    jlinkModules := jlinkModules.value.filterNot(
+      Seq(
+        "java.naming",
+        "java.desktop",
+        "java.compiler",
+        "java.management",
+        "jdk.management",
+//        "java.scripting",
+        "java.security.jgss"
+      ).contains
+    ),
+    jibBaseImage := "gcr.io/distroless/java-base-debian12:latest-arm64",
+    jibPlatforms := Set(
+      new com.google.cloud.tools.jib.api.buildplan.Platform("arm64", "linux")
+    ),
+    jibExtraMappings := {
+      val jre = directoryMap(jlinkBuildImage.value)
+      val jreToJibImage = jre map { case (file, name) =>
+        file -> ("/opt/jre/" + name)
+      }
+      jreToJibImage
+    },
+    jibEntrypoint := Some(
+      Seq(
+        "/opt/jre/output/bin/java",
+        "-XX:SharedClassListFile=/opt/jre/output/lib/classlist",
+        "-cp",
+        "/app/resources:/app/classes:/app/libs/*",
+        "com.example.authors.AuthorServer"
+      ).toList
+    ),
+    jibEnvironment := imageEnv ++ Map(
+      "JAVA_HOME" -> "/opt/jre/output"
+    ),
+    jibUseCurrentTimestamp := true,
 
     // removes all jar mappings in universal and appends the fat jar
     Universal / mappings := {
@@ -132,19 +180,23 @@ lazy val root = (project in file("."))
         MergeStrategy.first
       case PathList(ps @ _*) if ps.last endsWith ".xml"   => MergeStrategy.first
       case PathList(ps @ _*) if ps.last endsWith ".types" => MergeStrategy.first
-      case PathList(ps @ _*) if ps.last endsWith ".class" => MergeStrategy.first
+      case PathList(ps @ _*) if ps.last endsWith ".class" =>
+        MergeStrategy.first
       case "reference.conf" => MergeStrategy.concat
       case x =>
         val oldStrategy = (assembly / assemblyMergeStrategy).value
         oldStrategy(x)
-    }
+
+    },
+    nativeImageAgentOutputDir := baseDirectory.value / "src" / "main" / "resources" / "META-INF" / "native-image" / "app",
+    javaOptions += "-Dslf4j.provider=org.slf4j.simple.SimpleServiceProvider",
+    Compile / run / fork := true
   )
   .enablePlugins(DockerPlugin)
   .enablePlugins(JavaAppPackaging)
   .enablePlugins(JlinkPlugin)
 
 val imageEnv = Map(
-  "JAVA_TOOL_OPTIONS" -> "-XX:+TieredCompilation -XX:TieredStopAtLevel=1 -Xss256k",
-  "OTEL_EXPORTER_OTLP_ENDPOINT" -> "http://localhost:4317"
+  "JAVA_TOOL_OPTIONS" -> "-XX:+TieredCompilation -XX:TieredStopAtLevel=1 -Xss256k"
 )
 enablePlugins(ZioSbtCiPlugin)

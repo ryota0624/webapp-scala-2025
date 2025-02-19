@@ -12,9 +12,9 @@ import scala.util.Using
 
 val createAuthorSQL = """-- name: createAuthor :one
 INSERT INTO authors (
-    name, bio
+    id, name, bio
 ) VALUES (
-             ?, ?
+             ?, ?, ?
          )
 RETURNING id, name, bio
 """
@@ -36,10 +36,14 @@ ORDER BY name
 
 class QueriesImpl(private val conn: Connection) extends Queries {
 
-  override def createAuthor(name: String, bio: Option[String]): Option[Author] = {
+  override def createAuthor(
+      id: UUID,
+      name: String,
+      bio: Option[String]): Option[Author] = {
     Using.resource(conn.prepareStatement(createAuthorSQL)) { stmt =>
-      stmt.setString(1, name)
-          stmt.setString(2, bio.orNull)
+      stmt.setObject(1, id)
+          stmt.setString(2, name)
+          stmt.setString(3, bio.orNull)
 
       val results = stmt.executeQuery()
       Option.when(results.next()) {

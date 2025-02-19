@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:15.11
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: authors
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d
+  webapp:
+    image: 49ae348d95d2
+    environment:
+      DATABASE_URL: postgresql://postgres:5432/authors
+      DATABASE_PASSWORD: postgres
+      DATABASE_USER: postgres
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
